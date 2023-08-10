@@ -385,6 +385,9 @@ namespace SEQSIM
 		// Check if B0 compensation is available
 		bool m_bEccCompensationAvailable;
 
+		// pTx VOP bit to detect unwanted ADCs in pTx simulations
+		long m_lVop_bit = 56 - 32; // is the 56th bit of a 64bit EvalInfoMask, which is divided into 2 32 bit numbers
+
 	};
 
 }

@@ -1344,6 +1344,7 @@ namespace SEQSIM
 	 void DSP::getInfoParams(ifstream &in, long &lRXSampleLength, long &lRXEvents, long &lTXEvents) {
 
 		 string line;
+		 bool bVop = false; // indicates pTx readout
 
 		 while (std::getline(in, line))
 		 {	
@@ -1409,29 +1410,30 @@ namespace SEQSIM
 				continue;
 			}
 
-			 
-	 
-	 			 
-			 if (line.find("adc MeasHeader") != std::string::npos) {
-				 lRXEvents++;
-				 continue;
-			 }
-			 
-			 
-			 
-			 if (line.find("adc MeasHeader") != std::string::npos) {
-				 lRXEvents++;
-				 continue;
-			 }
+			if (line.find("adc MeasHeader") != std::string::npos) {
+				lRXEvents++;
+				continue;
+			}
 
-			 if (line.find("ushSamplesInScan") != std::string::npos) {
+			if (line.find("aulEvalInfoMask1") != std::string::npos) {
+				char * pch;
+				pch = strtok((char *)line.c_str(), ":;");
+				pch = strtok(NULL, "=;");
 
-				 char * pch;
-				 pch = strtok((char *)line.c_str(), ":;");
-				 pch = strtok(NULL, "=;");
+				bVop = (bool) ((long) stod(pch) & (1 << m_lVop_bit));
+				if (bVop)
+					lRXEvents--;
+				continue;
+			}
 
-				 lRXSampleLength += stod(pch);
-			 }
+			if (line.find("ushSamplesInScan") != std::string::npos && !bVop) {
+
+				char * pch;
+				pch = strtok((char *)line.c_str(), ":;");
+				pch = strtok(NULL, "=;");
+
+				lRXSampleLength += stod(pch);
+			}
 		 }
 
 		 // The last RX event can be disregarded. It has zero samples
@@ -1510,6 +1512,8 @@ namespace SEQSIM
 
 		 m_lCurrentRXSampleLength = 0;
 		 m_lCurrentTXNumber = 0;
+
+		 bool bVop = false; // indicates pTx readout
 
 		 long cRXEvent = 0;
 		 while (std::getline(in, line))
@@ -1634,7 +1638,15 @@ namespace SEQSIM
 			
 			}
 
-			if (line.find("ushSamplesInScan") != std::string::npos) {
+			if (line.find("aulEvalInfoMask1") != std::string::npos) {
+				char * pch;
+				pch = strtok((char *)line.c_str(), ":;");
+				pch = strtok(NULL, "=;");
+
+				bVop = (bool) ((long) stod(pch) & (1 << m_lVop_bit));
+			}
+
+			if (line.find("ushSamplesInScan") != std::string::npos && !bVop) {
 
 				char * pch;
 				pch = strtok((char *)line.c_str(), ":;");
