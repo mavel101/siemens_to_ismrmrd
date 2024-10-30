@@ -101,7 +101,7 @@ getTrajectory(const std::vector<std::string> &wip_double, const Trajectory &traj
 
 ISMRMRD::Acquisition
 getAcquisition(bool flash_pat_ref_scan, const Trajectory &trajectory, long dwell_time_0, long* global_table_pos, long max_channels,
-               bool isAdjustCoilSens, bool isAdjQuietCoilSens, bool isVB, bool isNX, ISMRMRD::NDArray<float> &traj,
+               bool isAdjustCoilSens, bool isAdjQuietCoilSens, bool isVB, bool isNX, bool attachTrajectory, ISMRMRD::NDArray<float> &traj,
                const sScanHeader &scanhead, const std::vector<ChannelHeaderAndData> &channels);
 
 void readScanHeader(std::ifstream &siemens_dat, bool VBFILE, sMDH &mdh, sScanHeader &scanhead);
@@ -461,7 +461,7 @@ int main(int argc, char* argv[]) {
     bool all_measurements = false;
     bool multi_meas_file = false;
     bool skip_syncdata = false;
-
+    bool attachTrajectory = false;
     bool list = false;
     std::string to_extract;
 
@@ -476,6 +476,7 @@ int main(int argc, char* argv[]) {
         ("allMeas,Z", po::value<bool>(&all_measurements)->implicit_value(true), "<All measurements flag>")
         ("multiMeasFile,M", po::value<bool>(&multi_meas_file)->implicit_value(true), "<Multiple measurements in single output file flag>")
         ("skipSyncData", po::value<bool>(&skip_syncdata)->implicit_value(true), "<Skip syncdata (PMU) conversion>")
+        ("attachTrajectory", po::value<bool>(&attachTrajectory)->implicit_value(true), "<Attach trajectories using vds design>")
         ("pMap,m", po::value<std::string>(&parammap_file), "<Parameter map XML file>")
         ("dsp,d", po::value<std::string>(&dsp_file), "<DSP file>")
 		("dsv,s", po::value<std::string>(&dsv_folder), "<DSV folder>")
@@ -506,6 +507,7 @@ int main(int argc, char* argv[]) {
         ("allMeas,Z", "<All measurements flag>")
         ("multiMeasFile,M", "<Multiple measurements in single file flag>")
         ("skipSyncData", "<Skip syncdata (PMU) conversion>")
+        ("attachTrajectory", "<Attach trajectories using vds design>")
         ("pMap,m", "<Parameter map XML>")
         ("dsp,d",					"<DSP file>")
 		("dsv,s",					"<DSP folder>")
@@ -817,9 +819,20 @@ int main(int argc, char* argv[]) {
         std::cout << "Protocol name: " << protocol_name << std::endl;
 
         bool isNX = false;
-        if ((baseLineString.find("NXVA") != std::string::npos) || (software_version.find("XA11") != std::string::npos) )
+        if ((baseLineString.find("NXVA") != std::string::npos) || (software_version.find("syngo MR XA") != std::string::npos) )
         {
             isNX = true;
+        }
+
+        if (isNX)
+        {
+            int nxVersion = atoi(software_version.substr(11).c_str());
+            std::cout << "Detected Numaris/X version: " << nxVersion << std::endl;
+            if (nxVersion > 30)
+            {
+                skip_syncdata = true;
+                std::cout << "Disabling parsing of syncdata due to incompatibility!" << std::endl;
+            }
         }
 
         std::cout << "Dwell time: " << dwell_time_0 << std::endl;
@@ -999,7 +1012,8 @@ int main(int argc, char* argv[]) {
 
         auto ismrmrd_dataset = boost::make_shared<ISMRMRD::Dataset>(ismrmrd_file.c_str(), ismrmrd_group.c_str(), true);
         //If this is a spiral acquisition, we will calculate the trajectory and add it to the individual profilesISMRMRD::NDArray<float> traj;
-        auto traj = getTrajectory(wip_double, trajectory, dwell_time_0, radial_views);
+//        auto traj = getTrajectory(wip_double, trajectory, dwell_time_0, radial_views);
+        ISMRMRD::NDArray<float> traj;
 
         uint32_t last_mask = 0;
         unsigned long int acquisitions = 1;
@@ -1110,7 +1124,7 @@ int main(int argc, char* argv[]) {
 
             ismrmrd_dataset->appendAcquisition(
                     getAcquisition(flash_pat_ref_scan, trajectory, dwell_time_0, global_table_pos, max_channels, isAdjustCoilSens,
-                                isAdjQuietCoilSens, isVB, isNX, traj, scanhead, channels));
+                                isAdjQuietCoilSens, isVB, isNX, attachTrajectory, traj, scanhead, channels));
 
         }//End of the while loop
         delete [] global_table_pos;
@@ -1165,12 +1179,17 @@ std::vector<ChannelHeaderAndData>
 readChannelHeaders(std::ifstream &siemens_dat, bool VBFILE, const sScanHeader &scanhead) {
     size_t nchannels = scanhead.ushUsedChannels;
     auto channels = std::vector<ChannelHeaderAndData>(nchannels);
-    sMDH mdh;
+    
     for (unsigned int c = 0; c < nchannels; c++) {
         if (VBFILE) {
-            if (c > 0) {
-                siemens_dat.read(reinterpret_cast<char *>(&mdh), sizeof(sMDH));
+            if (c == 0) {
+                // Rewind to read mdh again 
+                // It was read once to create scanhead 
+                // Not all parameters are present in scanhead
+                siemens_dat.seekg(-sizeof(sMDH), std::ios_base::cur);
             }
+            sMDH mdh;
+            siemens_dat.read(reinterpret_cast<char*>(&mdh), sizeof(sMDH));
             channels[c].header.ulTypeAndChannelLength = 0;
             channels[c].header.lMeasUID = mdh.lMeasUID;
             channels[c].header.ulScanCounter = mdh.ulScanCounter;
@@ -1233,7 +1252,7 @@ void readScanHeader(std::ifstream &siemens_dat, bool VBFILE, sMDH &mdh, sScanHea
 
 ISMRMRD::Acquisition
 getAcquisition(bool flash_pat_ref_scan, const Trajectory &trajectory, long dwell_time_0, long* global_table_pos, long max_channels,
-               bool isAdjustCoilSens, bool isAdjQuietCoilSens, bool isVB, bool isNX, ISMRMRD::NDArray<float> &traj,
+               bool isAdjustCoilSens, bool isAdjQuietCoilSens, bool isVB, bool isNX, bool attachTrajectory, ISMRMRD::NDArray<float> &traj,
                const sScanHeader &scanhead, const std::vector<ChannelHeaderAndData> &channels) {
     ISMRMRD::Acquisition ismrmrd_acq;
     // The number of samples, channels and trajectory dimensions is set below
@@ -1377,7 +1396,7 @@ getAcquisition(bool flash_pat_ref_scan, const Trajectory &trajectory, long dwell
         ismrmrd_acq.encoding_space_ref() = 1;
     }
 
-    if ((trajectory == Trajectory::TRAJECTORY_SPIRAL) & !(ismrmrd_acq.isFlagSet(
+    if (attachTrajectory && (trajectory == Trajectory::TRAJECTORY_SPIRAL) & !(ismrmrd_acq.isFlagSet(
             ISMRMRD::ISMRMRD_ACQ_IS_NOISE_MEASUREMENT))) { //Spiral and not noise, we will add the trajectory to the data
 
         // from above we have the following
