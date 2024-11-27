@@ -60,7 +60,7 @@
 #include <vector>  
 #include <ctime>
 #include <complex>
-
+#include <cstdint>
 
 #ifdef MATLAB_MEX_FILE 
 	#include "mex.h"
